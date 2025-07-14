@@ -10,17 +10,24 @@ class RGRewards:
         self, completions, answer, metadata, include_formatting=False
     ):
         if completions is None or not completions or not isinstance(completions, list):
-            return [0.0]
+            return [20]  # trả về điểm tối thiểu
         if answer is None or not answer:
-            return [0.0] * len(completions)
+            return [20] * len(completions)
 
         correctness = accuracy_reward(completions, answer, metadata, weight=1.0)
+
         if include_formatting:
             formatting = format_reward(completions, weight=0.1)
             cumulative = [sum(tup) for tup in zip(formatting, correctness)]
-            return cumulative
         else:
-            return correctness
+            cumulative = correctness
+
+        # Scale điểm về khoảng từ 20 đến 30
+        scaled = [
+            int(20 + min(max(score, 0.0), 1.0) * 10)  # map 0.0 -> 20, 1.0 -> 30
+            for score in cumulative
+        ]
+        return scaled
 
     def __call__(self, game_state):
         completions, answers, metadata = parse_game_state(game_state, self.stage)
