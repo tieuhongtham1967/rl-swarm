@@ -39,7 +39,7 @@ if [ -n "$DOCKER" ]; then
 fi
 
 # Will ignore any visible GPUs if set.
-CPU_ONLY=${CPU_ONLY:-""}
+CPU_ONLY=true
 
 # Set if successfully parsed from modal-login/temp-data/userData.json.
 ORG_ID=${ORG_ID:-""}
@@ -63,37 +63,6 @@ echo_red() {
 
 ROOT_DIR="$(cd $(dirname ${BASH_SOURCE[0]}) && pwd)"
 
-# Function to clean up the server process upon exit
-cleanup() {
-    echo_green ">> Shutting down trainer..."
-
-    # Remove modal credentials if they exist
-    rm -r $ROOT_DIR/modal-login/temp-data/*.json 2> /dev/null || true
-
-    # Kill all processes belonging to this script's process group
-    kill -- -$$ || true
-
-    exit 0
-}
-
-errnotify() {
-    echo_red ">> An error was detected while running rl-swarm. See $ROOT/logs for full logs."
-}
-
-trap cleanup EXIT
-trap errnotify ERR
-
-echo -e "\033[38;5;224m"
-cat << "EOF"
-    ██████  ██            ███████ ██     ██  █████  ██████  ███    ███
-    ██   ██ ██            ██      ██     ██ ██   ██ ██   ██ ████  ████
-    ██████  ██      █████ ███████ ██  █  ██ ███████ ██████  ██ ████ ██
-    ██   ██ ██                 ██ ██ ███ ██ ██   ██ ██   ██ ██  ██  ██
-    ██   ██ ███████       ███████  ███ ███  ██   ██ ██   ██ ██      ██
-
-    From Gensyn
-
-EOF
 
 # Create logs directory if it doesn't exist
 mkdir -p "$ROOT/logs"
@@ -154,18 +123,52 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
     echo "Started server process: $SERVER_PID"
     sleep 5
 
-    # Try to open the URL in the default browser
-    if [ -z "$DOCKER" ]; then
-        if open http://localhost:3000 2> /dev/null; then
-            echo_green ">> Successfully opened http://localhost:3000 in your default browser."
-        else
-            echo ">> Failed to open http://localhost:3000. Please open it manually."
-        fi
+    # Check if any .json files exist in /root/rl-swarm/modal-login/temp-data
+    if ls /root/rl-swarm/modal-login/temp-data/*.json 1> /dev/null 2>&1; then
+        echo_green ">> Modal login already detected. Skipping ngrok."
     else
-        echo_green ">> Please open http://localhost:3000 in your host browser."
+        echo ">> No modal login found. Starting ngrok for login..."
+
+        # Try to open the URL in the default browser or via ngrok
+        if ! command -v ngrok &> /dev/null; then
+            echo ">> Ngrok not found. Installing..."
+            curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | \
+                sudo tee /etc/apt/trusted.gpg.d/ngrok.asc > /dev/null
+            echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | \
+                sudo tee /etc/apt/sources.list.d/ngrok.list > /dev/null
+            sudo apt update > /dev/null
+            sudo apt install -y ngrok > /dev/null
+        fi
+
+        read -p ">> Enter your ngrok auth token: " NGROK_TOKEN
+        ngrok config add-authtoken "$NGROK_TOKEN"
+
+        nohup ngrok http 3000 > /dev/null 2>&1 &
+        sleep 3
+
+        NGROK_URL=$(curl -s http://localhost:4040/api/tunnels \
+            | grep -o '"public_url":"https:[^"]*' \
+            | cut -d '"' -f4)
+
+        if [ -z "$DOCKER" ]; then
+            if open http://localhost:3000 2> /dev/null; then
+                echo_green ">> Successfully opened http://localhost:3000 in your default browser."
+            else
+                echo ">> Failed to open http://localhost:3000. Please open it manually."
+            fi
+        else
+            echo_green ">> Please open http://localhost:3000 in your host browser."
+        fi
+
+        if [ -n "$NGROK_URL" ]; then
+            echo_green ">> ? Remote access via ngrok: $NGROK_URL"
+        else
+            echo_red ">> ? Could not retrieve ngrok public URL."
+        fi
     fi
 
     cd ..
+
 
     echo_green ">> Waiting for modal userData.json to be created..."
     while [ ! -f "modal-login/temp-data/userData.json" ]; do
@@ -200,6 +203,7 @@ pip install trl # for grpo config, will be deprecated soon
 pip install hivemind@git+https://github.com/gensyn-ai/hivemind@639c964a8019de63135a2594663b5bec8e5356dd # We need the latest, 1.1.11 is broken
 
 
+
 if [ ! -d "$ROOT/configs" ]; then
     mkdir "$ROOT/configs"
 fi  
@@ -226,24 +230,9 @@ fi
 
 echo_green ">> Done!"
 
-HF_TOKEN=${HF_TOKEN:-""}
-if [ -n "${HF_TOKEN}" ]; then # Check if HF_TOKEN is already set and use if so. Else give user a prompt to choose.
-    HUGGINGFACE_ACCESS_TOKEN=${HF_TOKEN}
-else
-    echo -en $GREEN_TEXT
-    read -p ">> Would you like to push models you train in the RL swarm to the Hugging Face Hub? [y/N] " yn
-    echo -en $RESET_TEXT
-    yn=${yn:-N} # Default to "N" if the user presses Enter
-    case $yn in
-        [Yy]*) read -p "Enter your Hugging Face access token: " HUGGINGFACE_ACCESS_TOKEN ;;
-        [Nn]*) HUGGINGFACE_ACCESS_TOKEN="None" ;;
-        *) echo ">>> No answer was given, so NO models will be pushed to Hugging Face Hub" && HUGGINGFACE_ACCESS_TOKEN="None" ;;
-    esac
-fi
-
 echo -en $GREEN_TEXT
-read -p ">> Enter the name of the model you want to use in huggingface repo/name format, or press [Enter] to use the default model. " MODEL_NAME
-echo -en $RESET_TEXT
+MODEL_NAME="Gensyn/Qwen2.5-0.5B-Instruct"
+echo ">> Using model: $MODEL_NAME"
 
 # Only export MODEL_NAME if user provided a non-empty value
 if [ -n "$MODEL_NAME" ]; then
@@ -256,7 +245,7 @@ fi
 echo_green ">> Good luck in the swarm!"
 echo_blue ">> And remember to star the repo on GitHub! --> https://github.com/gensyn-ai/rl-swarm"
 
-python -m rgym_exp.runner.swarm_launcher \
+python3 -m rgym_exp.runner.swarm_launcher \
     --config-path "$ROOT/rgym_exp/config" \
     --config-name "rg-swarm.yaml" 
 
