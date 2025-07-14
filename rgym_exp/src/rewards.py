@@ -10,9 +10,9 @@ class RGRewards:
         self, completions, answer, metadata, include_formatting=False
     ):
         if completions is None or not completions or not isinstance(completions, list):
-            return [20]  # trả về điểm tối thiểu
+            return [10] 
         if answer is None or not answer:
-            return [20] * len(completions)
+            return [10] * len(completions)
 
         correctness = accuracy_reward(completions, answer, metadata, weight=1.0)
 
@@ -22,9 +22,9 @@ class RGRewards:
         else:
             cumulative = correctness
 
-        # Scale điểm về khoảng từ 20 đến 30
+     
         scaled = [
-            int(20 + min(max(score, 0.0), 1.0) * 10)  # map 0.0 -> 20, 1.0 -> 30
+            int(10 + min(max(score, 0.0), 1.0) * 10)  
             for score in cumulative
         ]
         return scaled
