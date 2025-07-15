@@ -10,9 +10,9 @@ class RGRewards:
         self, completions, answer, metadata, include_formatting=False
     ):
         if completions is None or not completions or not isinstance(completions, list):
-            return [10] 
+            return [7] 
         if answer is None or not answer:
-            return [10] * len(completions)
+            return [7] * len(completions)
 
         correctness = accuracy_reward(completions, answer, metadata, weight=1.0)
 
@@ -24,7 +24,7 @@ class RGRewards:
 
      
         scaled = [
-            int(10 + min(max(score, 0.0), 1.0) * 10)  
+            int(7 + min(max(score, 0.0), 1.0) * 10)  
             for score in cumulative
         ]
         return scaled
