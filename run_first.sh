@@ -91,11 +91,11 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
 
         # 💡 CHỈ yêu cầu token nếu chưa config ngrok
         if [ ! -f "$HOME/.config/ngrok/ngrok.yml" ]; then
-            echo ">> ngrok chưa được cấu hình."
-            read -p ">> Nhập ngrok auth token của bạn: " NGROK_TOKEN
+            echo ">> ngrok chua cau hinh."
+            read -p ">> Nhap token ngrok: " NGROK_TOKEN
             ngrok config add-authtoken "$NGROK_TOKEN"
         else
-            echo_green ">> ngrok đã được cấu hình. Bỏ qua bước nhập token."
+            echo_green ">> ngrok da duoc cau hinh"
         fi
 
         nohup ngrok http 3000 > /dev/null 2>&1 &
@@ -105,39 +105,39 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
             | grep -o '"public_url":"https:[^"]*' \
             | cut -d '"' -f4)
 
-        echo_green ">> Vui lòng mở http://localhost:3000 trong trình duyệt."
+        echo_green ">> Open http://localhost:3000."
         if [ -n "$NGROK_URL" ]; then
-            echo_green ">> 🌐 Truy cập từ xa qua ngrok: $NGROK_URL"
+            echo_green ">> Truy cap tu xa qua ngrok: $NGROK_URL"
         else
-            echo_red ">> ❌ Không lấy được địa chỉ ngrok public."
+            echo_red ">> Khong lay duoc dia chi ngrok public."
         fi
     fi
 
     cd "$ROOT"
 
-    echo_green ">> Đang chờ tạo file userData.json..."
+    echo_green ">> Dang cho tao file userData.json..."
     while [ ! -f "modal-login/temp-data/userData.json" ]; do
         sleep 5
     done
 
-    echo "Đã tìm thấy userData.json. Tiếp tục..."
+    echo "Da tim thay userData.json. Tiep tuc..."
     ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
     echo "ORG_ID của bạn: $ORG_ID"
 
-    echo "Chờ kích hoạt API key..."
+    echo "Cho kich hoat API key..."
     while true; do
         STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
         if [[ "$STATUS" == "activated" ]]; then
-            echo "API key đã được kích hoạt!"
+            echo "API key da duoc kich hoat!"
             break
         else
-            echo "Chờ kích hoạt API key..."
+            echo "Cho kich hoat API key..."
             sleep 5
         fi
     done
 fi
 
-echo_green ">> Cài đặt thư viện Python..."
+echo_green ">> Cai dat thu vien Python..."
 pip install --upgrade pip
 pip install gensyn-genrl==0.1.4
 pip install reasoning-gym>=0.1.20
@@ -148,30 +148,17 @@ if [ ! -d "$ROOT/configs" ]; then
     mkdir "$ROOT/configs"
 fi
 
-if [ -f "$ROOT/configs/rg-swarm.yaml" ]; then
-    if ! cmp -s "$ROOT/rgym_exp/config/rg-swarm.yaml" "$ROOT/configs/rg-swarm.yaml"; then
-        if [ -z "$GENSYN_RESET_CONFIG" ]; then
-            echo_green ">> Phát hiện khác biệt trong rg-swarm.yaml. Đặt GENSYN_RESET_CONFIG để reset."
-        else
-            echo_green ">> Đang backup và reset rg-swarm.yaml..."
-            mv "$ROOT/configs/rg-swarm.yaml" "$ROOT/configs/rg-swarm.yaml.bak"
-            cp "$ROOT/rgym_exp/config/rg-swarm.yaml" "$ROOT/configs/rg-swarm.yaml"
-        fi
-    fi
-else
-    cp "$ROOT/rgym_exp/config/rg-swarm.yaml" "$ROOT/configs/rg-swarm.yaml"
-fi
+cp "$ROOT/rgym_exp/config/rg-swarm.yaml" "$ROOT/configs/rg-swarm.yaml"
 
 if [ -n "$DOCKER" ]; then
     sudo chmod -R 0777 /home/gensyn/rl_swarm/configs
 fi
 
 MODEL_NAME="Gensyn/Qwen2.5-0.5B-Instruct"
-echo_green ">> Dùng mô hình: $MODEL_NAME"
+echo_green ">> $MODEL_NAME"
 export MODEL_NAME
 
-echo_green ">> 🚀 Khởi chạy swarm..."
-echo_blue "⭐ Nhớ star repo nếu thấy hay: https://github.com/gensyn-ai/rl-swarm"
+echo_green ">> Khoi chay rl-swarm..."
 
 python3 -m rgym_exp.runner.swarm_launcher \
     --config-path "$ROOT/rgym_exp/config" \
