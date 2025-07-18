@@ -2,6 +2,17 @@
 
 set -euo pipefail
 
+# ==== KILL PORT 3000 TRƯỚC KHI CHẠY ====
+echo "Kiem tra port 3000..."
+PORT_PID=$(ss -ltnp | grep ':3000' | awk -F 'pid=' '{print $2}' | cut -d',' -f1 || true)
+
+if [ -n "$PORT_PID" ]; then
+    kill -9 "$PORT_PID"
+    echo "Da kill port 3000."
+else
+    echo "Port 3000 dang ranh."
+fi
+
 ROOT=$PWD
 GENRL_TAG="v0.1.1"
 
