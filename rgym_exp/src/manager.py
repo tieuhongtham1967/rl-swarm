@@ -133,30 +133,26 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
         return random.randint(base + bonus // 2, 14)
 
 
-
     def _try_submit_to_chain(self, signal_by_agent):
-        elapsed_time_hours = (time.time() - self.time_since_submit) / 3600
-        if elapsed_time_hours > self.submit_period:
-            try:
-                self.coordinator.submit_reward(
-                    self.state.round, 0, int(self.batched_signals), self.peer_id
-                )
-                self.batched_signals = 0.0
-
-                max_agent = self.peer_id
-            
-                self.coordinator.submit_winners(self.state.round, [max_agent], self.peer_id)
-                self.time_since_submit = time.time()
-                self.submitted_this_round = True
-            except Exception as e:
-                get_logger().exception(
-                    "Failed to submit to chain.\n"
-                    "This is most likely transient and will recover.\n"
-                    "There is no need to kill the program.\n"
-                    "If you encounter this error, please report it to Gensyn by\n"
-                    "filing a github issue here: https://github.com/gensyn-ai/rl-swarm/issues/ \n"
-                    "including the full stacktrace."
-                )
+        try:
+            self.coordinator.submit_reward(
+                self.state.round, 0, int(self.batched_signals), self.peer_id
+            )
+            self.batched_signals = 0.0
+            max_agent = self.peer_id
+    
+            self.coordinator.submit_winners(self.state.round, [max_agent], self.peer_id)
+            self.time_since_submit = time.time()
+            self.submitted_this_round = True
+        except Exception as e:
+            get_logger().exception(
+                "Failed to submit to chain.\n"
+                "This is most likely transient and will recover.\n"
+                "There is no need to kill the program.\n"
+                "If you encounter this error, please report it to Gensyn by\n"
+                "filing a github issue here: https://github.com/gensyn-ai/rl-swarm/issues/ \n"
+                "including the full stacktrace."
+            )
 
 
     def _hook_after_rewards_updated(self):
