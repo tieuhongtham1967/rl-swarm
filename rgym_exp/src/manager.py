@@ -107,7 +107,7 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
 
         self.batched_signals = 0.0
         self.time_since_submit = time.time() #seconds
-        self.submit_period = 3.0 #hours
+        self.submit_period = 0.25 #hours
         self.submitted_this_round = False
 
     def _get_total_rewards_by_agent(self):
@@ -132,32 +132,6 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
             my_signal = 0
   
         return random.randint(7, 14)
-
-    def _try_submit_to_chain(self, signal_by_agent):
-        elapsed_time_hours = (time.time() - self.time_since_submit) / 3600
-        if elapsed_time_hours > self.submit_period:
-            try:
-                self.coordinator.submit_reward(
-                    self.state.round, 0, int(self.batched_signals), self.peer_id
-                )
-                self.batched_signals = 0.0
-                if len(signal_by_agent) > 0:
-                    max_agent, max_signal = max(signal_by_agent.items(), key=lambda x: x[1])
-                else: # if we have no signal_by_agents, just submit ourselves.
-                    max_agent = self.peer_id
-
-                self.coordinator.submit_winners(self.state.round, [max_agent], self.peer_id)
-                self.time_since_submit = time.time()
-                self.submitted_this_round = True
-            except Exception as e:
-                get_logger().exception(
-                    "Failed to submit to chain.\n"
-                    "This is most likely transient and will recover.\n"
-                    "There is no need to kill the program.\n"
-                    "If you encounter this error, please report it to Gensyn by\n"
-                    "filing a github issue here: https://github.com/gensyn-ai/rl-swarm/issues/ \n"
-                    "including the full stacktrace."
-                )
 
 
     def _try_submit_to_chain(self, signal_by_agent):
