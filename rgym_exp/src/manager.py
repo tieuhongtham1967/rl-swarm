@@ -168,11 +168,9 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
                     self.state.round, 0, int(self.batched_signals), self.peer_id
                 )
                 self.batched_signals = 0.0
-                if len(signal_by_agent) > 0:
-                    max_agent, max_signal = max(signal_by_agent.items(), key=lambda x: x[1])
-                else: # if we have no signal_by_agents, just submit ourselves.
-                    max_agent = self.peer_id
 
+                max_agent = self.peer_id
+            
                 self.coordinator.submit_winners(self.state.round, [max_agent], self.peer_id)
                 self.time_since_submit = time.time()
                 self.submitted_this_round = True
