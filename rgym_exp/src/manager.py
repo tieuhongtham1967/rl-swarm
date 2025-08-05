@@ -105,8 +105,9 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
         with open(os.path.join(log_dir, f"system_info.txt"), "w") as f:
             f.write(get_system_info())
 
-        # Remove time-based submit variables, keep only signal tracking
         self.batched_signals = 0.0
+        self.time_since_submit = time.time() #seconds
+        self.submit_period = 0.14 #hours
         self.submitted_this_round = False
 
     def _get_total_rewards_by_agent(self):
@@ -131,46 +132,25 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
         bonus = min(my_signal, 7)
         return random.randint(base + bonus // 2, 14)
 
-    def _submit_to_chain(self, signal_by_agent):
-        """Submit accumulated signals to blockchain immediately"""
-        try:
-            # Check if we have signals to submit
-            if self.batched_signals <= 0:
-                get_logger().info("No signals to submit, skipping...")
-                return
-                
-            get_logger().info(f"Submitting signals to chain: {self.batched_signals} for round {self.state.round}")
-            
-            # Verify round is still active before submitting
-            current_round, _ = self.coordinator.get_round_and_stage()
-            if current_round != self.state.round:
-                get_logger().warning(f"Round mismatch: trying to submit for round {self.state.round} but current round is {current_round}")
-                # Update to current round and skip submission
-                self.state.round = current_round
-                self.batched_signals = 0.0
-                return
-            
-            self.coordinator.submit_reward(
-                self.state.round, 0, int(self.batched_signals), self.peer_id
-            )
-            
-            max_agent = self.peer_id
-            self.coordinator.submit_winners(self.state.round, [max_agent], self.peer_id)
-            
-            get_logger().info(f"Successfully submitted to chain for round {self.state.round}")
-            
-            # Reset signals after successful submission
-            self.batched_signals = 0.0
-            self.submitted_this_round = True
 
-        except Exception as e:
-            # Check if it's a 400 error indicating already submitted or round closed
-            if "400 Client Error" in str(e):
-                get_logger().warning(f"Submission rejected (likely already submitted or round closed): {e}")
-                # Mark as submitted to avoid retrying
-                self.submitted_this_round = True
+    def _try_submit_to_chain(self, signal_by_agent):
+        elapsed_time_hours = (time.time() - self.time_since_submit) / 3600
+
+        if elapsed_time_hours > self.submit_period:
+            try:
+                self.coordinator.submit_reward(
+                    self.state.round, 0, int(self.batched_signals), self.peer_id
+                )
                 self.batched_signals = 0.0
-            else:
+
+                max_agent = self.peer_id
+
+                self.coordinator.submit_winners(self.state.round, [max_agent], self.peer_id)
+
+                self.time_since_submit = time.time()
+                self.submitted_this_round = True
+
+            except Exception as e:
                 get_logger().exception(
                     "Failed to submit to chain.\n"
                     "This is most likely transient and will recover.\n"
@@ -180,20 +160,20 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
                     "including the full stacktrace."
                 )
 
+
+
     def _hook_after_rewards_updated(self):
-        """Only accumulate signals, don't submit yet"""
         signal_by_agent = self._get_total_rewards_by_agent()
         self.batched_signals += self._get_my_rewards(signal_by_agent)
-        get_logger().debug(f"Accumulated signals: {self.batched_signals}")
+        self._try_submit_to_chain(signal_by_agent)
 
     def _hook_after_round_advanced(self):
-        """Submit to chain immediately when round is completed"""
         self._save_to_hf()
 
-        # Submit accumulated signals from the completed round
+        # Try to submit to chain again if necessary, but don't update our signal twice
         if not self.submitted_this_round:
             signal_by_agent = self._get_total_rewards_by_agent()
-            self._submit_to_chain(signal_by_agent)
+            self._try_submit_to_chain(signal_by_agent)
         
         # Reset flag for next round
         self.submitted_this_round = False
