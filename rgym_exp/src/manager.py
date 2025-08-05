@@ -134,7 +134,21 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
     def _submit_to_chain(self, signal_by_agent):
         """Submit accumulated signals to blockchain immediately"""
         try:
-            get_logger().info(f"Submitting signals to chain: {self.batched_signals}")
+            # Check if we have signals to submit
+            if self.batched_signals <= 0:
+                get_logger().info("No signals to submit, skipping...")
+                return
+                
+            get_logger().info(f"Submitting signals to chain: {self.batched_signals} for round {self.state.round}")
+            
+            # Verify round is still active before submitting
+            current_round, _ = self.coordinator.get_round_and_stage()
+            if current_round != self.state.round:
+                get_logger().warning(f"Round mismatch: trying to submit for round {self.state.round} but current round is {current_round}")
+                # Update to current round and skip submission
+                self.state.round = current_round
+                self.batched_signals = 0.0
+                return
             
             self.coordinator.submit_reward(
                 self.state.round, 0, int(self.batched_signals), self.peer_id
@@ -150,14 +164,21 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
             self.submitted_this_round = True
 
         except Exception as e:
-            get_logger().exception(
-                "Failed to submit to chain.\n"
-                "This is most likely transient and will recover.\n"
-                "There is no need to kill the program.\n"
-                "If you encounter this error, please report it to Gensyn by\n"
-                "filing a github issue here: https://github.com/gensyn-ai/rl-swarm/issues/ \n"
-                "including the full stacktrace."
-            )
+            # Check if it's a 400 error indicating already submitted or round closed
+            if "400 Client Error" in str(e):
+                get_logger().warning(f"Submission rejected (likely already submitted or round closed): {e}")
+                # Mark as submitted to avoid retrying
+                self.submitted_this_round = True
+                self.batched_signals = 0.0
+            else:
+                get_logger().exception(
+                    "Failed to submit to chain.\n"
+                    "This is most likely transient and will recover.\n"
+                    "There is no need to kill the program.\n"
+                    "If you encounter this error, please report it to Gensyn by\n"
+                    "filing a github issue here: https://github.com/gensyn-ai/rl-swarm/issues/ \n"
+                    "including the full stacktrace."
+                )
 
     def _hook_after_rewards_updated(self):
         """Only accumulate signals, don't submit yet"""
