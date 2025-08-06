@@ -105,10 +105,8 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
         with open(os.path.join(log_dir, f"system_info.txt"), "w") as f:
             f.write(get_system_info())
 
-        self.batched_signals = 0.0
-        self.time_since_submit = time.time() #seconds
-        self.submit_period = 0.14 #hours
-        self.submitted_this_round = False
+        # Track accumulated signals for this round
+        self.round_signals = 0.0
 
     def _get_total_rewards_by_agent(self):
         rewards_by_agent = defaultdict(int)
@@ -132,56 +130,69 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
         bonus = min(my_signal, 7)
         return random.randint(base + bonus // 2, 14)
 
+    def _submit_to_chain(self, total_signals):
+        """Submit accumulated signals to blockchain after round completion"""
+        try:
+            get_logger().info(f"🔄 Submitting round {self.state.round} results to blockchain...")
+            get_logger().info(f"📊 Total signals for this round: {total_signals}")
+            
+            # Submit reward
+            self.coordinator.submit_reward(
+                self.state.round, 0, int(total_signals), self.peer_id
+            )
+            get_logger().info(f"✅ Successfully submitted reward to blockchain for round {self.state.round}")
 
-    def _try_submit_to_chain(self, signal_by_agent):
-        elapsed_time_hours = (time.time() - self.time_since_submit) / 3600
+            # Submit winners (using self as max agent for now)
+            max_agent = self.peer_id
+            self.coordinator.submit_winners(self.state.round, [max_agent], self.peer_id)
+            get_logger().info(f"✅ Successfully submitted winners to blockchain for round {self.state.round}")
+            
+            return True
 
-        if elapsed_time_hours > self.submit_period:
-            try:
-                self.coordinator.submit_reward(
-                    self.state.round, 0, int(self.batched_signals), self.peer_id
-                )
-                self.batched_signals = 0.0
-
-                max_agent = self.peer_id
-
-                self.coordinator.submit_winners(self.state.round, [max_agent], self.peer_id)
-
-                self.time_since_submit = time.time()
-                self.submitted_this_round = True
-
-            except Exception as e:
-                get_logger().exception(
-                    "Failed to submit to chain.\n"
-                    "This is most likely transient and will recover.\n"
-                    "There is no need to kill the program.\n"
-                    "If you encounter this error, please report it to Gensyn by\n"
-                    "filing a github issue here: https://github.com/gensyn-ai/rl-swarm/issues/ \n"
-                    "including the full stacktrace."
-                )
-
-
+        except Exception as e:
+            get_logger().error(f"❌ Failed to submit round {self.state.round} results to blockchain: {str(e)}")
+            get_logger().exception(
+                "Failed to submit to chain.\n"
+                "This is most likely transient and will recover.\n"
+                "There is no need to kill the program.\n"
+                "If you encounter this error, please report it to Gensyn by\n"
+                "filing a github issue here: https://github.com/gensyn-ai/rl-swarm/issues/ \n"
+                "including the full stacktrace."
+            )
+            return False
 
     def _hook_after_rewards_updated(self):
+        """Accumulate signals during training but don't submit yet"""
         signal_by_agent = self._get_total_rewards_by_agent()
-        self.batched_signals += self._get_my_rewards(signal_by_agent)
-        self._try_submit_to_chain(signal_by_agent)
+        current_reward = self._get_my_rewards(signal_by_agent)
+        self.round_signals += current_reward
+        
+        get_logger().debug(f"📈 Accumulated reward: {current_reward}, Total round signals: {self.round_signals}")
 
     def _hook_after_round_advanced(self):
-        self._save_to_hf()
-
-        # Try to submit to chain again if necessary, but don't update our signal twice
-        if not self.submitted_this_round:
-            signal_by_agent = self._get_total_rewards_by_agent()
-            self._try_submit_to_chain(signal_by_agent)
+        """Called after a round is completed - now we submit to blockchain"""
+        get_logger().info(f"🎯 Round {self.state.round} training completed!")
         
-        # Reset flag for next round
-        self.submitted_this_round = False
+        # Submit accumulated signals to blockchain
+        submit_success = self._submit_to_chain(self.round_signals)
+        
+        if submit_success:
+            get_logger().info(f"🎉 Round {self.state.round} submission completed successfully!")
+        else:
+            get_logger().warning(f"⚠️ Round {self.state.round} submission failed, but continuing...")
+        
+        # Reset signals for next round
+        self.round_signals = 0.0
+        
+        # Save to HuggingFace
+        self._save_to_hf()
 
         # Block until swarm round advances
         self.agent_block()
 
     def _hook_after_game(self):
+        """Called after the entire game is completed"""
+        get_logger().info("🏁 Game completed! Performing final save to HuggingFace...")
         self._save_to_hf()
 
     def _save_to_hf(self):
@@ -189,7 +200,7 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
             self.hf_token not in [None, "None"]
             and self.state.round % self.hf_push_frequency == 0
         ):
-            get_logger().info(f"pushing model to huggingface")
+            get_logger().info(f"📤 Pushing model to HuggingFace for round {self.state.round}...")
             try:
                 repo_id = self.trainer.args.hub_model_id
                 if repo_id is None:
@@ -207,9 +218,10 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
                         f"I am {self.animal_name}",
                     ],
                 )
+                get_logger().info(f"✅ Successfully pushed model to HuggingFace for round {self.state.round}")
             except Exception:
                 get_logger().exception(
-                    "Failed to push model to the Hugging Face Hub. When you conclude training please try manually pushing it yourself using the instructions here: https://huggingface.co/docs/hub/en/models-uploading",
+                    "❌ Failed to push model to the Hugging Face Hub. When you conclude training please try manually pushing it yourself using the instructions here: https://huggingface.co/docs/hub/en/models-uploading",
                     stack_info=True,
                 )
 
