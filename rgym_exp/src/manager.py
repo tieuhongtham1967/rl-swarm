@@ -107,6 +107,7 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
 
         # Track accumulated signals for this round
         self.round_signals = 0.0
+        self.round_completed = False  # Track if current round training is completed
 
     def _get_total_rewards_by_agent(self):
         rewards_by_agent = defaultdict(int)
@@ -169,23 +170,31 @@ class SwarmGameManager(BaseGameManager, DefaultGameManagerMixin):
         
         get_logger().debug(f"📈 Accumulated reward: {current_reward}, Total round signals: {self.round_signals}")
 
+    def _hook_after_stage_completed(self):
+        """Called when all stages in a round are completed - this is when we actually finished training"""
+        if not self.round_completed:
+            get_logger().info(f"🎯 Round {self.state.round} training completed!")
+            
+            # Submit accumulated signals to blockchain
+            submit_success = self._submit_to_chain(self.round_signals)
+            
+            if submit_success:
+                get_logger().info(f"🎉 Round {self.state.round} submission completed successfully!")
+            else:
+                get_logger().warning(f"⚠️ Round {self.state.round} submission failed, but continuing...")
+            
+            self.round_completed = True
+
     def _hook_after_round_advanced(self):
-        """Called after a round is completed - now we submit to blockchain"""
-        get_logger().info(f"🎯 Round {self.state.round} training completed!")
-        
-        # Submit accumulated signals to blockchain
-        submit_success = self._submit_to_chain(self.round_signals)
-        
-        if submit_success:
-            get_logger().info(f"🎉 Round {self.state.round} submission completed successfully!")
-        else:
-            get_logger().warning(f"⚠️ Round {self.state.round} submission failed, but continuing...")
-        
-        # Reset signals for next round
-        self.round_signals = 0.0
+        """Called when advancing to next round - just setup for next round"""
+        get_logger().info(f"🔄 Advancing to next round...")
         
         # Save to HuggingFace
         self._save_to_hf()
+        
+        # Reset for next round
+        self.round_signals = 0.0
+        self.round_completed = False
 
         # Block until swarm round advances
         self.agent_block()
